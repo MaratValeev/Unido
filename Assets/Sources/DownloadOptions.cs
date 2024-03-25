@@ -11,9 +11,8 @@ namespace Unido
 
     public class DownloadOptions : ICloneable
     {
-        //UNDONE
         public bool CreateBackup { get; set; } = true;
-        public bool DeleteOnCancel { get; set; } = true;
+        public bool DeleteOnCancelOrOnFail { get; set; } = true;
         public Uri Url { get; set; }
         public string FilePath { get; set; }
         public ILogger Logger { get; set; }

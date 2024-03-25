@@ -20,6 +20,7 @@ namespace Unido
         public long? TotalFileSize { get; private set; }
         public long DownloadedBytesCount { get; private set; }
         public float Progress { get; private set; }
+        public float BytesPerSecondSpeed { get; private set; }
 
         public event Action<DownloadEventArgs> DownloadEvent;
 
@@ -54,12 +55,13 @@ namespace Unido
 
             if (Status != DownloadStatus.NotStarted)
             {
-                logger?.Log($"Tried start download that already started!");
+                logger?.Log($"Tried start download that already started before!");
                 return;
             }
 
+            InvokeDownloadEvent();
+
             cts = new CancellationTokenSource();
-            Status = DownloadStatus.InProgress;
 
             HttpRequestMessage request = new HttpRequestMessage()
             {
@@ -130,48 +132,20 @@ namespace Unido
 
         private void InvokeDownloadEvent(Exception exception = null)
         {
-            DownloadStatus status = DownloadStatus.NotStarted;
-
+            DownloadStatus status;
             if (exception != null)
             {
-                if (exception is OperationCanceledException)
-                {
-                    logger?.Log($"Downloading file canceled.\n" +
-                        $"Url: {DownloadOptions.Url}");
-                    status = DownloadStatus.Cancelled;
-                }
-                else
-                {
-                    logger?.Log($"Downloading file failed.\n" +
-                        $"Url:{DownloadOptions.Url}\n" +
-                        $"Exception: {exception}");
-
-
-                    status = DownloadStatus.Failed;
-                }
+                status = HandleException(exception);
             }
-            else if (DownloadedBytesCount < TotalFileSize.Value)
+            else
             {
-                status = DownloadStatus.InProgress;
-            }
-            else if (DownloadedBytesCount == TotalFileSize.Value)
-            {
-                logger?.Log($"Downloading file completed.\n" +
-                    $"Url: {DownloadOptions.Url}");
-                status = DownloadStatus.Completed;
-                CloseStreams();
+                status = GetStatus();
             }
 
             Status = status;
 
-            if (TotalFileSize.HasValue)
-            {
-                Progress = (float)DownloadedBytesCount / TotalFileSize.Value;
-            }
-            else
-            {
-                Progress = 0;
-            }
+            CalculateDownloadProgress();
+            CalculateDownloadSpeed();
 
             DownloadEventArgs eventArgs = new DownloadEventArgs()
             {
@@ -184,15 +158,93 @@ namespace Unido
                 StatusCode = statusCode,
                 Status = Status,
                 TotalBytesToDownload = TotalFileSize.HasValue ? TotalFileSize.Value : 0,
-                DownloadSpeed = CalculateDownloadSpeed()
+                DownloadSpeed = BytesPerSecondSpeed
             };
 
             DownloadEvent?.Invoke(eventArgs);
         }
 
+        private DownloadStatus GetStatus()
+        {
+            DownloadStatus status = DownloadStatus.Undefined;
+
+            if (TotalFileSize.HasValue)
+            {
+                if (DownloadedBytesCount < TotalFileSize.Value)
+                {
+                    if (DownloadedBytesCount > 0)
+                    {
+                        status = DownloadStatus.InProgress;
+                    }
+                }
+                else if (DownloadedBytesCount == TotalFileSize.Value)
+                {
+                    logger?.Log($"Downloading file completed\n" +
+                        $"Url: {DownloadOptions.Url}");
+
+                    status = DownloadStatus.Completed;
+                    CloseStreams();
+                }
+                else
+                {
+                    throw new InvalidOperationException("Downloaded bytes is more than total!");
+                }
+            }
+            else
+            {
+                status = DownloadStatus.Started;
+            }
+
+            return status;
+        }
+
+        private DownloadStatus HandleException(Exception exception)
+        {
+            if (exception is OperationCanceledException)
+            {
+                logger?.Log($"Downloading file canceled.\n" +
+                    $"Url: {DownloadOptions.Url}");
+
+                return DownloadStatus.Cancelled;
+            }
+            else
+            {
+                logger?.Log($"Downloading file failed.\n" +
+                    $"Url:{DownloadOptions.Url}\n" +
+                    $"Exception: {exception}");
+
+                return DownloadStatus.Failed;
+            }
+        }
+
+        //UNDONE
         private long CalculateDownloadSpeed()
         {
             return 0;
+        }
+
+        private void CalculateDownloadProgress()
+        {
+            if (TotalFileSize.HasValue)
+            {
+                Progress = (float)DownloadedBytesCount / TotalFileSize.Value;
+            }
+            else
+            {
+                Progress = 0;
+            }
+        }
+
+        //UNDONE
+        public void ResumeDownload()
+        {
+            if (!IsValid) return;
+        }
+
+        //UNDONE
+        public void PauseDownload()
+        {
+            if (!IsValid) return;
         }
 
         public void CancelDownload()
@@ -210,26 +262,17 @@ namespace Unido
             CancelAndClear();
         }
 
-        public void ResumeDownload()
-        {
-            if (!IsValid) return;
-        }
-
-        public void PauseDownload()
-        {
-            if (!IsValid) return;
-        }
-
         public void Dispose()
         {
             CancelAndClear();
+            client = null;
         }
 
         private void CancelAndClear()
         {
-            cts.Cancel();
+            cts?.Cancel();
             CloseStreams();
-            cts.Dispose();
+            cts?.Dispose();
             cts = null;
             RemoveDownloadingFileIfNeeded();
         }
@@ -255,7 +298,7 @@ namespace Unido
             bool isFileExist = File.Exists(path);
 
             bool needDelete = Status == DownloadStatus.Cancelled || Status == DownloadStatus.Failed;
-            if (needDelete && DownloadOptions.DeleteOnCancel && isFileExist)
+            if (needDelete && DownloadOptions.DeleteOnCancelOrOnFail && isFileExist)
             {
                 File.Delete(path);
                 logger?.Log($"File {path} removed");

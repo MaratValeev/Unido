@@ -22,12 +22,11 @@ namespace Unido
             downloadButton.onClick.AddListener(Download);
         }
 
-        private async void Download()
+        private void Download()
         {
             string url = urlInputField.text;
             string path = filePathInputField.text;
-            await downloader.DownloadAsFileAsync(url, path);
-            Debug.Log("Complete");
+            downloader.DownloadAsFile(url, path);
         }
 
         private void OnApplicationQuit()

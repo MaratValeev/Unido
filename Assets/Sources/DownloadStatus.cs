@@ -2,11 +2,14 @@ namespace Unido
 {
     public enum DownloadStatus
     {
-        Completed,
+        Undefined,
+        NotStarted,
+        Started,
+        Paused,
         InProgress,
+        Completed,
+
         Cancelled,
         Failed,
-        Paused,
-        NotStarted
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 
 namespace Unido
@@ -17,6 +18,7 @@ namespace Unido
 
         public ILogger Logger { get; set; }
         public DownloadOptions DefaultDownloadOptions { get; private set; }
+        public IReadOnlyCollection<DownloadProcess> CurrentDownloadProcesses => currentDownloads.AsReadOnly();
 
         public DownloadService() : this(new DownloadServiceConfig())
         {
@@ -44,7 +46,33 @@ namespace Unido
         {
             DownloadProcess process = new DownloadProcess(options, client);
             currentDownloads.Add(process);
+            process.DownloadEvent += HandleDownloadProcessEvent;
             return process;
+        }
+
+        private void HandleDownloadProcessEvent(DownloadEventArgs args)
+        {
+            if (args.Status == DownloadStatus.Started)
+            {
+                CreateBackupIfNeeded(args.Sender);
+            }
+            else if (args.Status == DownloadStatus.Completed)
+            {
+                currentDownloads.Remove(args.Sender);
+            }
+        }
+
+        private void CreateBackupIfNeeded(DownloadProcess process)
+        {
+            var options = process.DownloadOptions;
+            string path = options.FilePath;
+            if (!options.CreateBackup || string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                return;
+            }
+
+            Logger?.Log($"Creating backup for {path}");
+            File.Copy(path, $"{path}.backup");
         }
 
         public void Dispose()
@@ -54,6 +82,7 @@ namespace Unido
                 process.Dispose();
             }
 
+            currentDownloads.Clear();
             client.Dispose();
         }
     }
