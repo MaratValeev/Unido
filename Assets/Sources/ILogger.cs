@@ -1,0 +1,11 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Unido
+{
+    public interface ILogger
+    {
+        public void Log(string message);
+    }
+}
