@@ -6,6 +6,7 @@ namespace Unido
         InProgress,
         Cancelled,
         Failed,
-        Paused
+        Paused,
+        NotStarted
     }
 }

@@ -13,6 +13,7 @@ namespace Unido
         [SerializeField] private Button downloadButton;
 
         DownloadService downloader;
+        DownloadProcess process;
 
         // Start is called before the first frame update
         void Start()
@@ -21,11 +22,17 @@ namespace Unido
             downloadButton.onClick.AddListener(Download);
         }
 
-        private void Download()
+        private async void Download()
         {
             string url = urlInputField.text;
             string path = filePathInputField.text;
-            var process = downloader.DownloadAsFile(url, path);
+            await downloader.DownloadAsFileAsync(url, path);
+            Debug.Log("Complete");
+        }
+
+        private void OnApplicationQuit()
+        {
+            downloader.Dispose();
         }
     }
 }

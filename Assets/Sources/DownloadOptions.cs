@@ -2,6 +2,13 @@ using System;
 
 namespace Unido
 {
+    public enum DownloadProgressChangeTrigger
+    {
+        ByDownloadedBytes,
+        ByPrecentage,
+        ByMilliseconds
+    }
+
     public class DownloadOptions : ICloneable
     {
         //UNDONE
@@ -13,6 +20,16 @@ namespace Unido
         public bool StartDownloadOnCreate { get; set; } = true;
         //UNDONE
         public long? SpeedLimit { get; set; } = null;
+        public int FileStreamBufferSize { get; set; } = 8192;
+
+        //UNDONE
+        public DownloadProgressChangeTrigger ProgressTriggerType { get; set; } = DownloadProgressChangeTrigger.ByMilliseconds;
+        public int ProgressTriggerValue { get; set; }
+
+        public DownloadOptions(ILogger logger = null)
+        {
+            Logger = logger;
+        }
 
         public object Clone()
         {
@@ -21,6 +38,7 @@ namespace Unido
 
         public bool Validate(out string message)
         {
+            //UNDONE
             message = "Ok";
             return true;
         }

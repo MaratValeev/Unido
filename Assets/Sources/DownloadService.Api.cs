@@ -23,7 +23,7 @@ namespace Unido
             var process = RegisterDownloadProcess(options);
             if (options.StartDownloadOnCreate)
             {
-                await process.DownloadAsync().AsUniTask();
+                await process.StartDownloadAsync().AsUniTask();
             }
         }
 
@@ -37,7 +37,7 @@ namespace Unido
 
             if (options.StartDownloadOnCreate)
             {
-                process.DownloadAsync().AsUniTask().Forget();
+                process.StartDownloadAsync().AsUniTask().Forget();
             }
 
             return process;
@@ -50,20 +50,29 @@ namespace Unido
             options.FilePath = filePath;
 
             var process = RegisterDownloadProcess(options);
-            await process.DownloadAsync();
+            await process.StartDownloadAsync().AsUniTask();
         }
 
         //With options
         public DownloadProcess Download(DownloadOptions options)
         {
             var process = RegisterDownloadProcess(options);
+            if (options.StartDownloadOnCreate)
+            {
+                process.StartDownloadAsync().AsUniTask().Forget();
+            }
             return process;
         }
 
         public async Task DownloadAsync(DownloadOptions options)
         {
             var process = RegisterDownloadProcess(options);
-            await process.DownloadAsync();
+            await process.StartDownloadAsync();
+        }
+
+        public void GetDownloadProcess()
+        {
+
         }
     }
 }

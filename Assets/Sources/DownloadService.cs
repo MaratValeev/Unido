@@ -7,6 +7,7 @@ namespace Unido
     public class DownloadServiceConfig
     {
         public float Timeout { get; set; } = 5;
+        public ILogger Logger { get; set; } = new UnidoLogger();
     }
 
     public partial class DownloadService : IDisposable
@@ -16,7 +17,6 @@ namespace Unido
 
         public ILogger Logger { get; set; }
         public DownloadOptions DefaultDownloadOptions { get; private set; }
-        public event Action<DownloadEventArgs> DownloadEvent;
 
         public DownloadService() : this(new DownloadServiceConfig())
         {
@@ -24,7 +24,12 @@ namespace Unido
 
         public DownloadService(DownloadServiceConfig config)
         {
-            Logger = new UnidoLogger();
+            if (config == null)
+            {
+                config = new DownloadServiceConfig();
+            }
+
+            Logger = config.Logger;
             client = new HttpClient()
             {
                 Timeout = TimeSpan.FromSeconds(config.Timeout)
@@ -32,7 +37,7 @@ namespace Unido
 
             Logger.Log($"Initialize {nameof(DownloadService)}");
             currentDownloads = new List<DownloadProcess>();
-            DefaultDownloadOptions = new DownloadOptions();
+            DefaultDownloadOptions = new DownloadOptions(Logger);
         }
 
         private DownloadProcess RegisterDownloadProcess(DownloadOptions options)
