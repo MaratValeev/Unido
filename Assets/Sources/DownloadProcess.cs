@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -75,8 +76,21 @@ namespace Unido
                 return;
             }
 
+            CheckRangeAcceptHeader(response);
+
             logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {response.StatusCode}");
             await DownloadContentFromHttpResponseMessage(response);
+        }
+
+        private void CheckRangeAcceptHeader(HttpResponseMessage response)
+        {
+            if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue &&
+                !response.Headers.AcceptRanges.Contains("bytes"))
+            {
+                logger?.Log("Server doesnt support download range content by bytes, " +
+                    $"download will continue in {nameof(FileCreationMode.CreateBackup)} mode.", type: LogType.Warning);
+                DownloadOptions.FileCreationMode = FileCreationMode.CreateBackup;
+            }
         }
 
         private async Task<HttpResponseMessage> TrySendRequestAsync()
@@ -86,6 +100,14 @@ namespace Unido
                 Method = HttpMethod.Get,
                 RequestUri = DownloadOptions.Url
             };
+
+            if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue)
+            {
+                FileInfo info = new FileInfo(DownloadOptions.FilePath);
+
+                request.Headers.CacheControl = new CacheControlHeaderValue() { NoCache = true };
+                request.Headers.Range = new RangeHeaderValue(info.Length, null);
+            }
 
             HttpResponseMessage response;
             try
@@ -135,7 +157,8 @@ namespace Unido
 
             try
             {
-                fileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, bufferSize, true);
+                var mode = SelectFileMode(DownloadOptions.FileCreationMode);
+                fileStream = new FileStream(filePath, mode, FileAccess.Write, FileShare.None, bufferSize, true);
             }
             catch (Exception ex)
             {
@@ -147,15 +170,16 @@ namespace Unido
 
             do
             {
-                if (state.Status != DownloadStatus.InProgress)
-                {
-                    break;
-                }
-
                 int bytesToRead;
                 try
                 {
                     bytesToRead = await downloadStream.ReadAsync(buffer, 0, bufferSize, cts.Token);
+                    if (bytesToRead == 0)
+                    {
+                        continue;
+                    }
+
+                    state.DownloadedBytesCount += bytesToRead;
                     streamReadDownloadEventCounter++;
                 }
                 catch (Exception ex)
@@ -163,8 +187,6 @@ namespace Unido
                     InvokeDownloadEvent(ex);
                     return;
                 }
-
-                state.DownloadedBytesCount += bytesToRead;
 
                 var now = DateTime.Now;
 
@@ -194,7 +216,21 @@ namespace Unido
                     InvokeDownloadEvent();
                 }
             }
-            while (true);
+            while (state.Status == DownloadStatus.InProgress);
+        }
+
+        private FileMode SelectFileMode(FileCreationMode mode)
+        {
+            switch (mode)
+            {
+                case FileCreationMode.Replace:
+                    return FileMode.Create;
+
+                default:
+                case FileCreationMode.CreateBackupAndAppend:
+                case FileCreationMode.TryContinue:
+                    return FileMode.Append;
+            }
         }
 
         private bool IsNeedInvokeProgressChangeEvent()
@@ -270,8 +306,10 @@ namespace Unido
                     logger?.Log($"Downloading file completed.\n" +
                         $"Url: {DownloadOptions.Url}");
 
-                    status = DownloadStatus.Completed;
                     DisposeStreams();
+                    cts.Dispose();
+
+                    status = DownloadStatus.Completed;
                 }
                 else
                 {
@@ -296,6 +334,9 @@ namespace Unido
                 canceled = true;
             }
 
+            DisposeStreams();
+            cts.Dispose();
+
             if (canceled)
             {
                 logger?.Log($"Download file canceled.\n" +
@@ -309,9 +350,6 @@ namespace Unido
                     $"Url:{DownloadOptions.Url}\n" +
                     $"Exception: {exception}",
                     type: LogType.Exception);
-
-                DisposeStreams();
-                cts.Dispose();
 
                 return DownloadStatus.Failed;
             }

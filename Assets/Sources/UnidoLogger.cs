@@ -12,14 +12,14 @@ namespace Unido
             Context = context;
         }
 
-        public string Format(string message)
+        public string Format(string message, LogType type)
         {
             return $"[{DateTime.Now}] {nameof(UnidoLogger)}: {message}";
         }
 
         public void Log(string message, LogType type = LogType.Log)
         {
-            string formatted = Format(message);
+            string formatted = Format(message, type);
 
             switch (type)
             {

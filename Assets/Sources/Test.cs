@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -28,10 +29,19 @@ namespace Unido
             string path = filePathInputField.text;
             options.Url = new Uri(url);
             options.FilePath = path;
-            options.ProgressTriggerValue = 0.5F;
-            options.SpeedLimit = 0;
+            options.ProgressTriggerValue = 1;
             options.BufferSize = 4096 * 4;
-            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByPrecentage;
+            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByStreamReadCounts;
+            options.DeleteOnCancelOrOnFail = false;
+
+            if (File.Exists(path))
+            {
+                options.FileCreationMode = FileCreationMode.TryContinue;
+            }
+            else
+            {
+                options.FileCreationMode = FileCreationMode.Replace;
+            }
 
             var process = downloader.Download(options);
             if (process == null)
@@ -47,7 +57,7 @@ namespace Unido
 
         private void OnApplicationQuit()
         {
-            downloader.Dispose();
+            downloader?.Dispose();
         }
     }
 }

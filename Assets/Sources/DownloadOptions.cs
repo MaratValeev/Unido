@@ -4,6 +4,14 @@ using UnityEngine;
 
 namespace Unido
 {
+    public enum FileCreationMode
+    {
+        CreateBackup,
+        Replace,
+        TryContinue,
+        CreateBackupAndAppend
+    }
+
     /// <include file='Documentation.xml' path='docs/members[@name="DownloadOptions"]/*' />
     public class DownloadOptions : ICloneable
     {
@@ -11,7 +19,7 @@ namespace Unido
         private int bufferSize = 4096;
         private float progressTriggerValue = 250;
 
-        public bool CreateBackup { get; set; } = false;
+        public FileCreationMode FileCreationMode { get; set; } = FileCreationMode.TryContinue;
         public bool DeleteOnCancelOrOnFail { get; set; } = true;
         public Uri Url { get; set; }
         public string FilePath { get; set; }
@@ -62,19 +70,25 @@ namespace Unido
         {
             if (string.IsNullOrEmpty(Url.AbsoluteUri))
             {
-                message = "URL is null or empty";
+                message = "URL is null or empty!";
                 return false;
             }
 
             if (!(Url.Scheme == Uri.UriSchemeHttp || Url.Scheme == Uri.UriSchemeHttps))
             {
-                message = "Invalid URL scheme";
+                message = "Invalid URL scheme!";
                 return false;
             }
 
             if (!Uri.IsWellFormedUriString(Url.AbsoluteUri, UriKind.Absolute))
             {
-                message = "Invalid URL path";
+                message = "Invalid URL path!";
+                return false;
+            }
+
+            if (FileCreationMode == FileCreationMode.TryContinue && string.IsNullOrEmpty(FilePath))
+            {
+                message = "Need set file path for try continue download!";
                 return false;
             }
 
@@ -86,7 +100,7 @@ namespace Unido
         {
             StringBuilder builder = new StringBuilder();
 
-            builder.AppendLine($"{nameof(CreateBackup)}: {CreateBackup}");
+            builder.AppendLine($"{nameof(FileCreationMode)}: {FileCreationMode}");
             builder.AppendLine($"{nameof(DeleteOnCancelOrOnFail)}: {DeleteOnCancelOrOnFail}");
             builder.AppendLine($"{nameof(Url)}: {Url}");
             builder.AppendLine($"{nameof(FilePath)}: {FilePath}");

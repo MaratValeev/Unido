@@ -66,7 +66,12 @@ namespace Unido
         {
             var options = process.DownloadOptions;
             string path = options.FilePath;
-            if (!options.CreateBackup || string.IsNullOrEmpty(path) || !File.Exists(path))
+
+            bool createBackupOption =
+                options.FileCreationMode == FileCreationMode.CreateBackup ||
+                options.FileCreationMode == FileCreationMode.CreateBackupAndAppend;
+
+            if (!createBackupOption || string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 return;
             }
@@ -100,7 +105,6 @@ namespace Unido
                     await UniTask.WaitForSeconds(0.1F);
                 }
             }
-
         }
 
         public void Dispose()
