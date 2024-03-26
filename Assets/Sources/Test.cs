@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
@@ -10,14 +11,15 @@ namespace Unido
     {
         [SerializeField] private TMP_InputField urlInputField;
         [SerializeField] private TMP_InputField filePathInputField;
+        [SerializeField] private TextMeshProUGUI info;
         [SerializeField] private Button downloadButton;
 
         DownloadService downloader;
-        DownloadProcess process;
-
-        // Start is called before the first frame update
+        DownloadOptions options;
         void Start()
         {
+            options = new DownloadOptions();
+
             downloader = new DownloadService();
             downloadButton.onClick.AddListener(Download);
         }
@@ -26,7 +28,17 @@ namespace Unido
         {
             string url = urlInputField.text;
             string path = filePathInputField.text;
-            downloader.DownloadAsFile(url, path);
+            options.Url = new Uri(url);
+            options.FilePath = path;
+            options.ProgressTriggerValue = 10;
+            options.SpeedLimit = 1024 * 1000;
+            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByBufferCounts;
+
+            var process = downloader.Download(options);
+            process.DownloadEvent += (a) =>
+            {
+                info.text = a.ToString();
+            };
         }
 
         private void OnApplicationQuit()

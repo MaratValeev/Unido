@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<docs>
+    <members name="DownloadOptions">
+        <summary>
+            Download options for <see cref="DownloadProcess"></see>.
+        </summary>
+    </members>
+    <members name="DownloadService">
+        <summary>
+            Main class for manage list of <see cref ="DownloadProcess"></see>.
+            This class allow you download files and manage current downloads.
+        </summary>
+    </members>
+</docs>

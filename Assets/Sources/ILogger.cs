@@ -6,6 +6,7 @@ namespace Unido
 {
     public interface ILogger
     {
-        public void Log(string message);
+        public void Log(string message, GameObject context = null, LogType type = LogType.Log);
+        public string Format(string message);
     }
 }

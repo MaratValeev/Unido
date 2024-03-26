@@ -5,12 +5,7 @@ using System.Net.Http;
 
 namespace Unido
 {
-    public class DownloadServiceConfig
-    {
-        public float Timeout { get; set; } = 5;
-        public ILogger Logger { get; set; } = new UnidoLogger();
-    }
-
+    /// <include file='Documentation.xml' path='docs/members[@name="DownloadService"]/*' />
     public partial class DownloadService : IDisposable
     {
         private List<DownloadProcess> currentDownloads;
@@ -31,20 +26,20 @@ namespace Unido
                 config = new DownloadServiceConfig();
             }
 
-            Logger = config.Logger;
+            currentDownloads = new List<DownloadProcess>();
             client = new HttpClient()
             {
                 Timeout = TimeSpan.FromSeconds(config.Timeout)
             };
 
-            Logger.Log($"Initialize {nameof(DownloadService)}");
-            currentDownloads = new List<DownloadProcess>();
-            DefaultDownloadOptions = new DownloadOptions(Logger);
+            Logger = config.Logger;
+            DefaultDownloadOptions = new DownloadOptions();
+            Logger?.Log($"Initialize {nameof(DownloadService)} completed");
         }
 
         private DownloadProcess RegisterDownloadProcess(DownloadOptions options)
         {
-            DownloadProcess process = new DownloadProcess(options, client);
+            DownloadProcess process = new DownloadProcess(options, client, Logger);
             currentDownloads.Add(process);
             process.DownloadEvent += HandleDownloadProcessEvent;
             return process;

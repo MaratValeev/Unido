@@ -1,14 +1,11 @@
+using Born2Code.Net;
 using Cysharp.Threading.Tasks;
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using TMPro;
-using UnityEditor.PackageManager;
-using UnityEngine;
 
 namespace Unido
 {
@@ -20,33 +17,38 @@ namespace Unido
         public long? TotalFileSize { get; private set; }
         public long DownloadedBytesCount { get; private set; }
         public float Progress { get; private set; }
-        public float BytesPerSecondSpeed { get; private set; }
+        public float DownloadSpeedAverage { get; private set; }
+        public float DownloadSpeedBytesPerSecond { get; private set; }
 
         public event Action<DownloadEventArgs> DownloadEvent;
 
+        private ILogger logger;
         private int statusCode;
-        private Stream downloadStream;
+        private ThrottledStream downloadStream;
         private FileStream fileStream;
         private HttpClient client;
         private CancellationTokenSource cts;
+        private DateTime startDownloadDateTime;
 
-        private ILogger logger => DownloadOptions.Logger;
-
-        public DownloadProcess(DownloadOptions options, HttpClient client)
+        public DownloadProcess(DownloadOptions options, HttpClient client, ILogger logger)
         {
+            this.logger = logger;
+
             if (!options.Validate(out string validateResultMessage))
             {
-                options.Logger?.Log($"Validate options failed: {validateResultMessage}");
+                logger?.Log($"Validate options failed: {validateResultMessage}");
                 IsValid = false;
                 return;
             }
 
-            Status = DownloadStatus.NotStarted;
-
-            DownloadOptions = options;
             logger?.Log($"Validate options successful done");
-            this.client = client;
             IsValid = true;
+
+            this.client = client;
+
+            Status = DownloadStatus.NotStarted;
+            Progress = -1;
+            DownloadOptions = options;
         }
 
         public async Task StartDownloadAsync()
@@ -61,6 +63,7 @@ namespace Unido
 
             InvokeDownloadEvent();
 
+            startDownloadDateTime = DateTime.Now;
             cts = new CancellationTokenSource();
 
             HttpRequestMessage request = new HttpRequestMessage()
@@ -88,46 +91,73 @@ namespace Unido
             TotalFileSize = response.Content.Headers.ContentLength;
             logger?.Log($"Downloading file size: {TotalFileSize}");
 
-            downloadStream = await response.Content.ReadAsStreamAsync();
+            var stream = await response.Content.ReadAsStreamAsync();
+
+            downloadStream = new ThrottledStream(stream);
+            downloadStream.MaximumBytesPerSecond = DownloadOptions.SpeedLimit;
 
             await ReadDownloadStream();
         }
 
         private async Task ReadDownloadStream()
         {
-            long readCount = 0;
-            int bufferSize = DownloadOptions.FileStreamBufferSize;
-            bool isMoreToRead = true;
+            int bufferSize = DownloadOptions.BufferSize;
             var buffer = new byte[bufferSize];
-
+            int readCounts = 0;
             string filePath = DownloadOptions.FilePath;
 
-            fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, true);
+            DateTime lastSpeedUpdate = DateTime.Now;
+            long lastSpeedUpdateDownloadedBytes = 0;
+
+            fileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, bufferSize, true);
+
+            Status = DownloadStatus.InProgress;
 
             do
             {
-                var bytesToRead = await downloadStream.ReadAsync(buffer, 0, bufferSize, cts.Token);
-
-                if (bytesToRead == 0)
+                if (Status != DownloadStatus.InProgress)
                 {
-                    InvokeDownloadEvent();
                     break;
                 }
 
-                if (!string.IsNullOrEmpty(DownloadOptions.FilePath))
+                var bytesToRead = await downloadStream.ReadAsync(buffer, 0, bufferSize, cts.Token);
+                DownloadedBytesCount += bytesToRead;
+
+                if ((DateTime.Now - lastSpeedUpdate).TotalSeconds >= 1)
+                {
+                    DownloadSpeedBytesPerSecond = DownloadedBytesCount - lastSpeedUpdateDownloadedBytes;
+                    lastSpeedUpdate = DateTime.Now;
+                    lastSpeedUpdateDownloadedBytes = DownloadedBytesCount;
+                }
+
+                if (!string.IsNullOrEmpty(filePath))
                 {
                     await fileStream.WriteAsync(buffer, 0, bytesToRead, cts.Token);
                 }
 
-                DownloadedBytesCount += bytesToRead;
-                readCount += 1;
-
-                if (readCount % 100 == 0)
+                if (IsNeedInvokeProgressChangeEvent(readCounts))
                 {
                     InvokeDownloadEvent();
                 }
             }
-            while (isMoreToRead);
+            while (true);
+        }
+
+        private bool IsNeedInvokeProgressChangeEvent(int readCounts)
+        {
+            int triggerValue = DownloadOptions.ProgressTriggerValue;
+
+            switch (DownloadOptions.ProgressTriggerType)
+            {
+                case DownloadProgressChangeTrigger.ByBufferCounts:
+                    if (readCounts % triggerValue == 0)
+                    {
+                        return true;
+                    }
+                    break;
+            }
+
+            return false;
         }
 
         private void InvokeDownloadEvent(Exception exception = null)
@@ -144,8 +174,8 @@ namespace Unido
 
             Status = status;
 
-            CalculateDownloadProgress();
-            CalculateDownloadSpeed();
+            CalculateAndSetDownloadProgress();
+            CalculateAndSetDownloadSpeedAverage();
 
             DownloadEventArgs eventArgs = new DownloadEventArgs()
             {
@@ -158,7 +188,8 @@ namespace Unido
                 StatusCode = statusCode,
                 Status = Status,
                 TotalBytesToDownload = TotalFileSize.HasValue ? TotalFileSize.Value : 0,
-                DownloadSpeed = BytesPerSecondSpeed
+                DownloadSpeedAverage = DownloadSpeedAverage,
+                DownloadBytesPerSecond = DownloadSpeedBytesPerSecond
             };
 
             DownloadEvent?.Invoke(eventArgs);
@@ -217,13 +248,19 @@ namespace Unido
             }
         }
 
-        //UNDONE
-        private long CalculateDownloadSpeed()
+        private void CalculateAndSetDownloadSpeedAverage()
         {
-            return 0;
+            var elapsedMs = (DateTime.Now - startDownloadDateTime).TotalSeconds;
+            DownloadSpeedAverage = DownloadedBytesCount / (float)elapsedMs;
         }
 
-        private void CalculateDownloadProgress()
+        private void CalculateAndSetDownloadSpeed()
+        {
+            var elapsedMs = (DateTime.Now - startDownloadDateTime).TotalSeconds;
+            DownloadSpeedAverage = DownloadedBytesCount / (float)elapsedMs;
+        }
+
+        private void CalculateAndSetDownloadProgress()
         {
             if (TotalFileSize.HasValue)
             {
@@ -294,6 +331,8 @@ namespace Unido
 
         private void RemoveDownloadingFileIfNeeded()
         {
+            if (!IsValid) return;
+
             string path = DownloadOptions.FilePath;
             bool isFileExist = File.Exists(path);
 

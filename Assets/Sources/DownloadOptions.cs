@@ -1,43 +1,79 @@
 using System;
+using System.IO;
 
 namespace Unido
 {
-    public enum DownloadProgressChangeTrigger
-    {
-        ByDownloadedBytes,
-        ByPrecentage,
-        ByMilliseconds
-    }
-
+    /// <include file='Documentation.xml' path='docs/members[@name="DownloadOptions"]/*' />
     public class DownloadOptions : ICloneable
     {
-        public bool CreateBackup { get; set; } = true;
+        private long speedLimit = 0;
+        private int bufferSize = 4096;
+
+        public bool CreateBackup { get; set; } = false;
         public bool DeleteOnCancelOrOnFail { get; set; } = true;
         public Uri Url { get; set; }
         public string FilePath { get; set; }
-        public ILogger Logger { get; set; }
         public bool StartDownloadOnCreate { get; set; } = true;
-        //UNDONE
-        public long? SpeedLimit { get; set; } = null;
-        public int FileStreamBufferSize { get; set; } = 8192;
+        public long SpeedLimit
+        {
+            get { return speedLimit; }
+            set
+            {
+                if (value < 0)
+                {
+                    value = 16;
+                }
+
+                speedLimit = value;
+            }
+        }
+        public int BufferSize
+        {
+            get { return bufferSize; }
+            set
+            {
+                if (value < 0)
+                {
+                    value = 16;
+                }
+
+                bufferSize = value;
+            }
+        }
+
+        public FileMode FileMode { get; set; } = FileMode.Append;
 
         //UNDONE
         public DownloadProgressChangeTrigger ProgressTriggerType { get; set; } = DownloadProgressChangeTrigger.ByMilliseconds;
-        public int ProgressTriggerValue { get; set; }
-
-        public DownloadOptions(ILogger logger = null)
-        {
-            Logger = logger;
-        }
+        //UNDONE
+        public int ProgressTriggerValue { get; set; } = 250;
 
         public object Clone()
         {
             return MemberwiseClone();
         }
 
+        //TODO: add recomendations
         public bool Validate(out string message)
         {
-            //UNDONE
+            if (string.IsNullOrEmpty(Url.AbsoluteUri))
+            {
+                message = "URL is null or empty";
+                return false;
+            }
+
+            if (!(Url.Scheme == Uri.UriSchemeHttp || Url.Scheme == Uri.UriSchemeHttps))
+            {
+                message = "Invalid URL scheme";
+                return false;
+            }
+
+            if (!Uri.IsWellFormedUriString(Url.AbsoluteUri, UriKind.Absolute))
+            {
+                message = "Invalid URL path";
+                return false;
+            }
+
             message = "Ok";
             return true;
         }
