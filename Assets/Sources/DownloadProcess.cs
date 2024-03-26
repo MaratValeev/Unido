@@ -41,7 +41,7 @@ namespace Unido
 
             if (!downloadOptions.CheckValidity(out string validateResultMessage))
             {
-                logger?.Log($"Validate options failed: {validateResultMessage}");
+                logger?.Log($"Validate options failed: {validateResultMessage}", LogType.Error);
                 state.IsValid = false;
                 return;
             }
@@ -267,7 +267,7 @@ namespace Unido
                 }
                 else if (state.DownloadedBytesCount == state.TotalFileSize.Value)
                 {
-                    logger?.Log($"Downloading file completed\n" +
+                    logger?.Log($"Downloading file completed.\n" +
                         $"Url: {DownloadOptions.Url}");
 
                     status = DownloadStatus.Completed;
@@ -298,7 +298,7 @@ namespace Unido
 
             if (canceled)
             {
-                logger?.Log($"Downloading file canceled.\n" +
+                logger?.Log($"Download file canceled.\n" +
                     $"Url: {DownloadOptions.Url}");
 
                 return DownloadStatus.Cancelled;
@@ -307,9 +307,11 @@ namespace Unido
             {
                 logger?.Log($"Downloading file failed.\n" +
                     $"Url:{DownloadOptions.Url}\n" +
-                    $"Exception: {exception}");
+                    $"Exception: {exception}",
+                    type: LogType.Exception);
 
                 DisposeStreams();
+                cts.Dispose();
 
                 return DownloadStatus.Failed;
             }

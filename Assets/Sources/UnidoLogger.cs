@@ -17,7 +17,7 @@ namespace Unido
             return $"[{DateTime.Now}] {nameof(UnidoLogger)}: {message}";
         }
 
-        public void Log(string message, GameObject context = null, LogType type = LogType.Log)
+        public void Log(string message, LogType type = LogType.Log)
         {
             string formatted = Format(message);
 
@@ -25,14 +25,15 @@ namespace Unido
             {
                 case LogType.Exception:
                 case LogType.Error:
-                    Debug.LogError(formatted, context); break;
+                    Debug.LogError(formatted, Context);
+                    break;
 
                 case LogType.Warning:
-                    Debug.LogWarning(formatted, context);
+                    Debug.LogWarning(formatted, Context);
                     break;
 
                 default:
-                    Debug.Log(formatted, context);
+                    Debug.Log(formatted, Context);
                     break;
             }
         }
