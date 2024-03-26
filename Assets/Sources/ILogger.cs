@@ -8,5 +8,6 @@ namespace Unido
     {
         public void Log(string message, GameObject context = null, LogType type = LogType.Log);
         public string Format(string message);
+        public GameObject Context { get; set; }
     }
 }

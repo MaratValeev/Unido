@@ -1,7 +1,9 @@
+using Cysharp.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using UnityEngine;
 
 namespace Unido
 {
@@ -14,10 +16,6 @@ namespace Unido
         public ILogger Logger { get; set; }
         public DownloadOptions DefaultDownloadOptions { get; private set; }
         public IReadOnlyCollection<DownloadProcess> CurrentDownloadProcesses => currentDownloads.AsReadOnly();
-
-        public DownloadService() : this(new DownloadServiceConfig())
-        {
-        }
 
         public DownloadService(DownloadServiceConfig config)
         {
@@ -39,6 +37,12 @@ namespace Unido
 
         private DownloadProcess RegisterDownloadProcess(DownloadOptions options)
         {
+            if (currentDownloads.Find((x) => x.DownloadOptions.FilePath == options.FilePath) != null)
+            {
+                Logger?.Log($"Trying download to file that already busy by another download process!", type: LogType.Error);
+                return null;
+            }
+
             DownloadProcess process = new DownloadProcess(options, client, Logger);
             currentDownloads.Add(process);
             process.DownloadEvent += HandleDownloadProcessEvent;
@@ -47,13 +51,14 @@ namespace Unido
 
         private void HandleDownloadProcessEvent(DownloadEventArgs args)
         {
-            if (args.Status == DownloadStatus.Started)
+            if (args.State.Status == DownloadStatus.Started)
             {
                 CreateBackupIfNeeded(args.Sender);
             }
-            else if (args.Status == DownloadStatus.Completed)
+            else if (args.State.IsDone)
             {
                 currentDownloads.Remove(args.Sender);
+                RemoveDownloadingFileIfNeededAsync(args.Sender);
             }
         }
 
@@ -68,6 +73,34 @@ namespace Unido
 
             Logger?.Log($"Creating backup for {path}");
             File.Copy(path, $"{path}.backup");
+        }
+
+        private async void RemoveDownloadingFileIfNeededAsync(DownloadProcess process)
+        {
+            bool canDelete = process.State.Status == DownloadStatus.Cancelled ||
+                             process.State.Status == DownloadStatus.Failed;
+
+            if (!process.DownloadOptions.DeleteOnCancelOrOnFail || !canDelete)
+            {
+                return;
+            }
+
+            string path = process.DownloadOptions.FilePath;
+
+            while (File.Exists(path))
+            {
+                try
+                {
+                    File.Delete(path);
+                    Logger?.Log($"File {path} removed");
+                    break;
+                }
+                catch
+                {
+                    await UniTask.WaitForSeconds(0.1F);
+                }
+            }
+
         }
 
         public void Dispose()

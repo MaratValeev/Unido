@@ -1,5 +1,6 @@
 using System;
-using System.IO;
+using System.Text;
+using UnityEngine;
 
 namespace Unido
 {
@@ -8,6 +9,7 @@ namespace Unido
     {
         private long speedLimit = 0;
         private int bufferSize = 4096;
+        private float progressTriggerValue = 250;
 
         public bool CreateBackup { get; set; } = false;
         public bool DeleteOnCancelOrOnFail { get; set; } = true;
@@ -40,21 +42,23 @@ namespace Unido
                 bufferSize = value;
             }
         }
-
-        public FileMode FileMode { get; set; } = FileMode.Append;
-
-        //UNDONE
+        public GameObject Context { get; set; }
         public DownloadProgressChangeTrigger ProgressTriggerType { get; set; } = DownloadProgressChangeTrigger.ByMilliseconds;
-        //UNDONE
-        public int ProgressTriggerValue { get; set; } = 250;
+        public float ProgressTriggerValue
+        {
+            get { return progressTriggerValue; }
+            set
+            {
+                progressTriggerValue = Mathf.Clamp(value, 0, float.MaxValue);
+            }
+        }
 
         public object Clone()
         {
             return MemberwiseClone();
         }
 
-        //TODO: add recomendations
-        public bool Validate(out string message)
+        public bool CheckValidity(out string message)
         {
             if (string.IsNullOrEmpty(Url.AbsoluteUri))
             {
@@ -76,6 +80,22 @@ namespace Unido
 
             message = "Ok";
             return true;
+        }
+
+        public override string ToString()
+        {
+            StringBuilder builder = new StringBuilder();
+
+            builder.AppendLine($"{nameof(CreateBackup)}: {CreateBackup}");
+            builder.AppendLine($"{nameof(DeleteOnCancelOrOnFail)}: {DeleteOnCancelOrOnFail}");
+            builder.AppendLine($"{nameof(Url)}: {Url}");
+            builder.AppendLine($"{nameof(FilePath)}: {FilePath}");
+            builder.AppendLine($"{nameof(StartDownloadOnCreate)}: {StartDownloadOnCreate}");
+            builder.AppendLine($"{nameof(SpeedLimit)}: {SpeedLimit}");
+            builder.AppendLine($"{nameof(BufferSize)}: {BufferSize}");
+            builder.AppendLine($"{nameof(Context)}: {Context}");
+
+            return builder.ToString();
         }
     }
 }

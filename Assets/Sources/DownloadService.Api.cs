@@ -21,7 +21,7 @@ namespace Unido
             options.Url = new Uri(url);
 
             var process = RegisterDownloadProcess(options);
-            if (options.StartDownloadOnCreate)
+            if (options.StartDownloadOnCreate && process is not null)
             {
                 await process.StartDownloadAsync().AsUniTask();
             }
@@ -34,8 +34,7 @@ namespace Unido
             options.FilePath = filePath;
 
             var process = RegisterDownloadProcess(options);
-
-            if (options.StartDownloadOnCreate)
+            if (options.StartDownloadOnCreate && process is not null)
             {
                 process.StartDownloadAsync().AsUniTask().Forget();
             }
@@ -50,14 +49,16 @@ namespace Unido
             options.FilePath = filePath;
 
             var process = RegisterDownloadProcess(options);
-            await process.StartDownloadAsync().AsUniTask();
+            if (options.StartDownloadOnCreate && process is not null)
+            {
+                await process.StartDownloadAsync().AsUniTask();
+            }
         }
 
-        //With options
         public DownloadProcess Download(DownloadOptions options)
         {
             var process = RegisterDownloadProcess(options);
-            if (options.StartDownloadOnCreate)
+            if (options.StartDownloadOnCreate && process is not null)
             {
                 process.StartDownloadAsync().AsUniTask().Forget();
             }
@@ -67,12 +68,10 @@ namespace Unido
         public async Task DownloadAsync(DownloadOptions options)
         {
             var process = RegisterDownloadProcess(options);
-            await process.StartDownloadAsync();
-        }
-
-        public void GetDownloadProcess()
-        {
-
+            if (options.StartDownloadOnCreate && process is not null)
+            {
+                await process.StartDownloadAsync().AsUniTask();
+            }
         }
     }
 }

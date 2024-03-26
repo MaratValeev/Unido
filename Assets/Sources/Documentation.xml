@@ -11,4 +11,9 @@
             This class allow you download files and manage current downloads.
         </summary>
     </members>
+    <members name="DownloadProcess">
+        <summary>
+            Represents download process. By this class you can check current download state and manipulate it.
+        </summary>
+    </members>
 </docs>

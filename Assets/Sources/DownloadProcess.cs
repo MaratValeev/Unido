@@ -1,99 +1,124 @@
 using Born2Code.Net;
 using Cysharp.Threading.Tasks;
 using System;
-using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace Unido
 {
+    /// <include file='Documentation.xml' path='docs/members[@name="DownloadProcess"]/*' />
     public class DownloadProcess : IDisposable
     {
-        public DownloadOptions DownloadOptions { get; private set; }
-        public DownloadStatus Status { get; private set; }
-        public bool IsValid { get; private set; }
-        public long? TotalFileSize { get; private set; }
-        public long DownloadedBytesCount { get; private set; }
-        public float Progress { get; private set; }
-        public float DownloadSpeedAverage { get; private set; }
-        public float DownloadSpeedBytesPerSecond { get; private set; }
-
-        public event Action<DownloadEventArgs> DownloadEvent;
-
+        private HttpClient client;
         private ILogger logger;
-        private int statusCode;
+        private DownloadProcessState state;
+
         private ThrottledStream downloadStream;
         private FileStream fileStream;
-        private HttpClient client;
-        private CancellationTokenSource cts;
-        private DateTime startDownloadDateTime;
 
-        public DownloadProcess(DownloadOptions options, HttpClient client, ILogger logger)
+        private CancellationTokenSource cts;
+
+        private DateTime startDownloadDateTime;
+        private DateTime lastDonwloadEventInvokeDateTime;
+        private int streamReadDownloadEventCounter;
+        private float progressDownloadEventCounter;
+
+        public IDonwloadProcessState State => state;
+        public DownloadOptions DownloadOptions { get; private set; }
+        public event Action<DownloadEventArgs> DownloadEvent;
+
+        public DownloadProcess(DownloadOptions downloadOptions, HttpClient client, ILogger logger)
         {
             this.logger = logger;
+            this.client = client;
+            DownloadOptions = downloadOptions;
 
-            if (!options.Validate(out string validateResultMessage))
+            state = new DownloadProcessState();
+
+            if (!downloadOptions.CheckValidity(out string validateResultMessage))
             {
                 logger?.Log($"Validate options failed: {validateResultMessage}");
-                IsValid = false;
+                state.IsValid = false;
                 return;
             }
 
             logger?.Log($"Validate options successful done");
-            IsValid = true;
+            state.IsValid = true;
 
-            this.client = client;
 
-            Status = DownloadStatus.NotStarted;
-            Progress = -1;
-            DownloadOptions = options;
+            state.Status = DownloadStatus.NotStarted;
         }
 
         public async Task StartDownloadAsync()
         {
-            if (!IsValid) return;
+            if (!state.IsValid) return;
 
-            if (Status != DownloadStatus.NotStarted)
+            if (state.Status != DownloadStatus.NotStarted)
             {
-                logger?.Log($"Tried start download that already started before!");
+                logger?.Log($"Tried start download that already started before!", type: LogType.Warning);
                 return;
             }
 
+            //Invoke event of start download 
             InvokeDownloadEvent();
 
             startDownloadDateTime = DateTime.Now;
             cts = new CancellationTokenSource();
 
+            var response = await TrySendRequestAsync();
+            if (response == null)
+            {
+                return;
+            }
+
+            logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {response.StatusCode}");
+            await DownloadContentFromHttpResponseMessage(response);
+        }
+
+        private async Task<HttpResponseMessage> TrySendRequestAsync()
+        {
             HttpRequestMessage request = new HttpRequestMessage()
             {
                 Method = HttpMethod.Get,
                 RequestUri = DownloadOptions.Url
             };
 
+            HttpResponseMessage response;
             try
             {
-                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-                statusCode = (int)response.StatusCode;
+                response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+                state.StatusCode = (int)response.StatusCode;
                 response.EnsureSuccessStatusCode();
-                logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {response.StatusCode}");
-                await DownloadFileFromHttpResponseMessage(response);
+                return response;
             }
             catch (Exception ex)
             {
                 InvokeDownloadEvent(ex);
+                return null;
             }
         }
 
-        private async Task DownloadFileFromHttpResponseMessage(HttpResponseMessage response)
+        private async Task DownloadContentFromHttpResponseMessage(HttpResponseMessage response)
         {
-            TotalFileSize = response.Content.Headers.ContentLength;
-            logger?.Log($"Downloading file size: {TotalFileSize}");
+            state.TotalFileSize = response.Content.Headers.ContentLength;
+            logger?.Log($"Downloading file size: {state.TotalFileSize}");
 
-            var stream = await response.Content.ReadAsStreamAsync();
+            Stream responseStream;
+            try
+            {
+                responseStream = await response.Content.ReadAsStreamAsync();
+            }
+            catch (Exception ex)
+            {
+                InvokeDownloadEvent(ex);
+                return;
+            }
 
-            downloadStream = new ThrottledStream(stream);
+            downloadStream = new ThrottledStream(responseStream);
             downloadStream.MaximumBytesPerSecond = DownloadOptions.SpeedLimit;
 
             await ReadDownloadStream();
@@ -103,39 +128,68 @@ namespace Unido
         {
             int bufferSize = DownloadOptions.BufferSize;
             var buffer = new byte[bufferSize];
-            int readCounts = 0;
             string filePath = DownloadOptions.FilePath;
-
             DateTime lastSpeedUpdate = DateTime.Now;
+            lastDonwloadEventInvokeDateTime = DateTime.Now;
             long lastSpeedUpdateDownloadedBytes = 0;
 
-            fileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, bufferSize, true);
+            try
+            {
+                fileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, bufferSize, true);
+            }
+            catch (Exception ex)
+            {
+                InvokeDownloadEvent(ex);
+                return;
+            }
 
-            Status = DownloadStatus.InProgress;
+            state.Status = DownloadStatus.InProgress;
 
             do
             {
-                if (Status != DownloadStatus.InProgress)
+                if (state.Status != DownloadStatus.InProgress)
                 {
                     break;
                 }
 
-                var bytesToRead = await downloadStream.ReadAsync(buffer, 0, bufferSize, cts.Token);
-                DownloadedBytesCount += bytesToRead;
-
-                if ((DateTime.Now - lastSpeedUpdate).TotalSeconds >= 1)
+                int bytesToRead;
+                try
                 {
-                    DownloadSpeedBytesPerSecond = DownloadedBytesCount - lastSpeedUpdateDownloadedBytes;
-                    lastSpeedUpdate = DateTime.Now;
-                    lastSpeedUpdateDownloadedBytes = DownloadedBytesCount;
+                    bytesToRead = await downloadStream.ReadAsync(buffer, 0, bufferSize, cts.Token);
+                    streamReadDownloadEventCounter++;
+                }
+                catch (Exception ex)
+                {
+                    InvokeDownloadEvent(ex);
+                    return;
+                }
+
+                state.DownloadedBytesCount += bytesToRead;
+
+                var now = DateTime.Now;
+
+                if ((now - lastSpeedUpdate).TotalSeconds >= 1.0F)
+                {
+                    state.DownloadedBytesForLastSecond = state.DownloadedBytesCount - lastSpeedUpdateDownloadedBytes;
+                    lastSpeedUpdate = now;
+                    lastSpeedUpdateDownloadedBytes = state.DownloadedBytesCount;
                 }
 
                 if (!string.IsNullOrEmpty(filePath))
                 {
-                    await fileStream.WriteAsync(buffer, 0, bytesToRead, cts.Token);
+                    try
+                    {
+                        await fileStream.WriteAsync(buffer, 0, bytesToRead, cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        InvokeDownloadEvent(ex);
+                        return;
+                    }
                 }
 
-                if (IsNeedInvokeProgressChangeEvent(readCounts))
+                CalculateAndSetDownloadProgress();
+                if (IsNeedInvokeProgressChangeEvent())
                 {
                     InvokeDownloadEvent();
                 }
@@ -143,15 +197,33 @@ namespace Unido
             while (true);
         }
 
-        private bool IsNeedInvokeProgressChangeEvent(int readCounts)
+        private bool IsNeedInvokeProgressChangeEvent()
         {
-            int triggerValue = DownloadOptions.ProgressTriggerValue;
+            float triggerValue = DownloadOptions.ProgressTriggerValue;
 
             switch (DownloadOptions.ProgressTriggerType)
             {
-                case DownloadProgressChangeTrigger.ByBufferCounts:
-                    if (readCounts % triggerValue == 0)
+                case DownloadProgressChangeTrigger.ByStreamReadCounts:
+                    if (streamReadDownloadEventCounter % triggerValue == 0)
                     {
+                        return true;
+                    }
+                    break;
+
+                case DownloadProgressChangeTrigger.ByMilliseconds:
+                    DateTime now = DateTime.Now;
+                    if ((now - lastDonwloadEventInvokeDateTime).TotalMilliseconds >= triggerValue)
+                    {
+                        lastDonwloadEventInvokeDateTime = now;
+                        return true;
+                    }
+                    break;
+
+                case DownloadProgressChangeTrigger.ByPrecentage:
+                    float precentage = state.Progress * 100;
+                    if (precentage - progressDownloadEventCounter >= triggerValue)
+                    {
+                        progressDownloadEventCounter = precentage;
                         return true;
                     }
                     break;
@@ -162,76 +234,69 @@ namespace Unido
 
         private void InvokeDownloadEvent(Exception exception = null)
         {
-            DownloadStatus status;
-            if (exception != null)
-            {
-                status = HandleException(exception);
-            }
-            else
-            {
-                status = GetStatus();
-            }
-
-            Status = status;
-
-            CalculateAndSetDownloadProgress();
+            DefineAndSetCurrentStatus(exception);
             CalculateAndSetDownloadSpeedAverage();
 
             DownloadEventArgs eventArgs = new DownloadEventArgs()
             {
                 Sender = this,
-                FilePath = DownloadOptions.FilePath,
-                Url = DownloadOptions.Url,
                 Exception = exception,
-                DownloadedBytesCount = DownloadedBytesCount,
-                Progress = Progress,
-                StatusCode = statusCode,
-                Status = Status,
-                TotalBytesToDownload = TotalFileSize.HasValue ? TotalFileSize.Value : 0,
-                DownloadSpeedAverage = DownloadSpeedAverage,
-                DownloadBytesPerSecond = DownloadSpeedBytesPerSecond
+                State = State,
+                Options = DownloadOptions
             };
 
             DownloadEvent?.Invoke(eventArgs);
         }
 
-        private DownloadStatus GetStatus()
+        private void DefineAndSetCurrentStatus(Exception exception)
         {
             DownloadStatus status = DownloadStatus.Undefined;
 
-            if (TotalFileSize.HasValue)
+            if (exception != null)
             {
-                if (DownloadedBytesCount < TotalFileSize.Value)
+                status = HandleException(exception);
+            }
+            else if (state.TotalFileSize.HasValue)
+            {
+                if (state.DownloadedBytesCount < state.TotalFileSize.Value)
                 {
-                    if (DownloadedBytesCount > 0)
+                    if (state.DownloadedBytesCount > 0)
                     {
                         status = DownloadStatus.InProgress;
                     }
                 }
-                else if (DownloadedBytesCount == TotalFileSize.Value)
+                else if (state.DownloadedBytesCount == state.TotalFileSize.Value)
                 {
                     logger?.Log($"Downloading file completed\n" +
                         $"Url: {DownloadOptions.Url}");
 
                     status = DownloadStatus.Completed;
-                    CloseStreams();
+                    DisposeStreams();
                 }
                 else
                 {
                     throw new InvalidOperationException("Downloaded bytes is more than total!");
                 }
             }
-            else
+            else if (status == DownloadStatus.NotStarted)
             {
                 status = DownloadStatus.Started;
             }
 
-            return status;
+            state.Status = status;
         }
 
         private DownloadStatus HandleException(Exception exception)
         {
-            if (exception is OperationCanceledException)
+            bool canceled = exception is OperationCanceledException;
+
+            WebException webException = exception is WebException ? exception as WebException : null;
+            if (webException != null && webException.Status == WebExceptionStatus.RequestCanceled)
+            {
+                canceled = true;
+            }
+
+            if (canceled)
             {
                 logger?.Log($"Downloading file canceled.\n" +
                     $"Url: {DownloadOptions.Url}");
@@ -244,103 +309,80 @@ namespace Unido
                     $"Url:{DownloadOptions.Url}\n" +
                     $"Exception: {exception}");
 
+                DisposeStreams();
+
                 return DownloadStatus.Failed;
             }
         }
 
         private void CalculateAndSetDownloadSpeedAverage()
         {
-            var elapsedMs = (DateTime.Now - startDownloadDateTime).TotalSeconds;
-            DownloadSpeedAverage = DownloadedBytesCount / (float)elapsedMs;
-        }
-
-        private void CalculateAndSetDownloadSpeed()
-        {
-            var elapsedMs = (DateTime.Now - startDownloadDateTime).TotalSeconds;
-            DownloadSpeedAverage = DownloadedBytesCount / (float)elapsedMs;
+            var elapsedMilliseconds = (DateTime.Now - startDownloadDateTime).TotalSeconds;
+            if (elapsedMilliseconds == 0)
+            {
+                state.DownloadSpeedAverage = 0;
+            }
+            state.DownloadSpeedAverage = state.DownloadedBytesCount / (float)elapsedMilliseconds;
         }
 
         private void CalculateAndSetDownloadProgress()
         {
-            if (TotalFileSize.HasValue)
+            if (state.TotalFileSize.HasValue)
             {
-                Progress = (float)DownloadedBytesCount / TotalFileSize.Value;
+                state.Progress = (float)state.DownloadedBytesCount / state.TotalFileSize.Value;
             }
             else
             {
-                Progress = 0;
+                state.Progress = 0;
             }
         }
 
         //UNDONE
         public void ResumeDownload()
         {
-            if (!IsValid) return;
+            if (!state.IsValid) return;
         }
 
         //UNDONE
         public void PauseDownload()
         {
-            if (!IsValid) return;
+            if (!state.IsValid) return;
         }
 
-        public void CancelDownload()
+        public async void CancelDownload()
         {
-            if (!IsValid) return;
-
-            if (Status != DownloadStatus.InProgress && Status != DownloadStatus.Paused)
+            if (state.Status != DownloadStatus.InProgress ||
+                state.Status != DownloadStatus.Started ||
+                state.Status != DownloadStatus.Paused)
             {
-                logger?.Log($"Canceling download that not paused or in progress! Url: {DownloadOptions.Url}");
                 return;
             }
 
-            logger?.Log($"Cancel download {DownloadOptions.Url}");
-
-            CancelAndClear();
+            cts.Cancel();
+            await UniTask.WaitUntil(() => state.Status == DownloadStatus.Cancelled);
+            DisposeStreams();
+            cts.Dispose();
         }
 
         public void Dispose()
         {
-            CancelAndClear();
+            CancelDownload();
             client = null;
+            state.IsValid = false;
         }
 
-        private void CancelAndClear()
-        {
-            cts?.Cancel();
-            CloseStreams();
-            cts?.Dispose();
-            cts = null;
-            RemoveDownloadingFileIfNeeded();
-        }
-
-        private void CloseStreams()
+        private void DisposeStreams()
         {
             if (downloadStream != null)
             {
-                downloadStream.Close();
+                downloadStream.Dispose();
                 downloadStream = null;
             }
 
             if (fileStream != null)
             {
-                fileStream.Close();
+                fileStream.Dispose();
                 fileStream = null;
-            }
-        }
-
-        private void RemoveDownloadingFileIfNeeded()
-        {
-            if (!IsValid) return;
-
-            string path = DownloadOptions.FilePath;
-            bool isFileExist = File.Exists(path);
-
-            bool needDelete = Status == DownloadStatus.Cancelled || Status == DownloadStatus.Failed;
-            if (needDelete && DownloadOptions.DeleteOnCancelOrOnFail && isFileExist)
-            {
-                File.Delete(path);
-                logger?.Log($"File {path} removed");
             }
         }
     }

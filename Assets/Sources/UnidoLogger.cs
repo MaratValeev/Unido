@@ -3,9 +3,15 @@ using UnityEngine;
 
 namespace Unido
 {
-    //UNDONE
     public class UnidoLogger : ILogger
     {
+        public GameObject Context { get; set; }
+
+        public UnidoLogger(GameObject context = null)
+        {
+            Context = context;
+        }
+
         public string Format(string message)
         {
             return $"[{DateTime.Now}] {nameof(UnidoLogger)}: {message}";

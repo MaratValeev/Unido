@@ -2,7 +2,7 @@ namespace Unido
 {
     public enum DownloadProgressChangeTrigger
     {
-        ByBufferCounts,
+        ByStreamReadCounts,
         ByPrecentage,
         ByMilliseconds
     }

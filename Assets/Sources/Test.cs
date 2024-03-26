@@ -19,8 +19,8 @@ namespace Unido
         void Start()
         {
             options = new DownloadOptions();
-
-            downloader = new DownloadService();
+            var config = new DownloadServiceConfig();
+            downloader = new DownloadService(config);
             downloadButton.onClick.AddListener(Download);
         }
 
@@ -30,11 +30,17 @@ namespace Unido
             string path = filePathInputField.text;
             options.Url = new Uri(url);
             options.FilePath = path;
-            options.ProgressTriggerValue = 10;
-            options.SpeedLimit = 1024 * 1000;
-            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByBufferCounts;
+            options.ProgressTriggerValue = 0.5F;
+            options.SpeedLimit = 0;
+            options.BufferSize = 4096 * 4;
+            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByPrecentage;
 
             var process = downloader.Download(options);
+            if (process == null)
+            {
+                return;
+            }
+
             process.DownloadEvent += (a) =>
             {
                 info.text = a.ToString();
