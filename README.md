@@ -14,7 +14,7 @@ Features:
 Tested on Unity 2022.3.11.f1. Not tested on end platform yet.
 
 # Requirements
-Unido uses [UniTask]([https://github.com/Cysharp/UniTask)).
+Unido uses [UniTask](https://github.com/Cysharp/UniTask).
 
 # Installation
 No package file or install via git yet, work in progress.
