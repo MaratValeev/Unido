@@ -5,7 +5,6 @@ namespace Unido
         Undefined,
         NotStarted,
         Started,
-        Paused,
         InProgress,
         Completed,
 

@@ -13,8 +13,10 @@ namespace Unido
         [SerializeField] private TextMeshProUGUI info;
         [SerializeField] private Button downloadButton;
 
-        DownloadService downloader;
-        DownloadOptions options;
+        private DownloadService downloader;
+        private DownloadOptions options;
+        private DownloadProcess process;
+
         void Start()
         {
             options = new DownloadOptions();
@@ -29,9 +31,9 @@ namespace Unido
             string path = filePathInputField.text;
             options.Url = new Uri(url);
             options.FilePath = path;
-            options.ProgressTriggerValue = 1;
+            options.ProgressTriggerValue = 0.01F;
             options.BufferSize = 4096 * 4;
-            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByStreamReadCounts;
+            options.ProgressTriggerType = DownloadProgressChangeTrigger.ByPrecentage;
             options.DeleteOnCancelOrOnFail = false;
 
             if (File.Exists(path))
@@ -43,7 +45,7 @@ namespace Unido
                 options.FileCreationMode = FileCreationMode.Replace;
             }
 
-            var process = downloader.Download(options);
+            process = downloader.Download(options);
             if (process == null)
             {
                 return;
@@ -53,6 +55,17 @@ namespace Unido
             {
                 info.text = a.ToString();
             };
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.P))
+            {
+                if (process != null)
+                {
+                    process.State.Paused = !process.State.Paused;
+                }
+            }
         }
 
         private void OnApplicationQuit()

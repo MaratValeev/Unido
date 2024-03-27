@@ -21,6 +21,7 @@ namespace Unido
             }
         }
         public int StatusCode { get; set; }
+        public bool Paused { get; set; }
         public long BytesToDownloadLeft
         {
             get
@@ -63,5 +64,6 @@ namespace Unido
         public bool IsDone { get; }
         public int StatusCode { get; }
         public long BytesToDownloadLeft { get; }
+        public bool Paused { get; set; }
     }
 }

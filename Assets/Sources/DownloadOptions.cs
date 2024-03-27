@@ -9,7 +9,7 @@ namespace Unido
         CreateBackup,
         Replace,
         TryContinue,
-        CreateBackupAndAppend
+        CreateBackupAndTryContinue
     }
 
     /// <include file='Documentation.xml' path='docs/members[@name="DownloadOptions"]/*' />

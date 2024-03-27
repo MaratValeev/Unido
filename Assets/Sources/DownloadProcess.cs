@@ -47,10 +47,8 @@ namespace Unido
                 return;
             }
 
-            logger?.Log($"Validate options successful done");
+            logger?.Log($"Validate options successful done.");
             state.IsValid = true;
-
-
             state.Status = DownloadStatus.NotStarted;
         }
 
@@ -76,20 +74,29 @@ namespace Unido
                 return;
             }
 
-            CheckRangeAcceptHeader(response);
+            SetContinueDownloadIfNeeded(response);
 
             logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {response.StatusCode}");
             await DownloadContentFromHttpResponseMessage(response);
         }
 
-        private void CheckRangeAcceptHeader(HttpResponseMessage response)
+        private void SetContinueDownloadIfNeeded(HttpResponseMessage response)
         {
-            if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue &&
-                !response.Headers.AcceptRanges.Contains("bytes"))
+            if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue)
             {
-                logger?.Log("Server doesnt support download range content by bytes, " +
-                    $"download will continue in {nameof(FileCreationMode.CreateBackup)} mode.", type: LogType.Warning);
-                DownloadOptions.FileCreationMode = FileCreationMode.CreateBackup;
+                if (!response.Headers.AcceptRanges.Contains("bytes"))
+                {
+                    logger?.Log("Server doesn't support download range content by bytes, " +
+                        $"download will continue in {nameof(FileCreationMode.CreateBackup)} mode.", type: LogType.Warning);
+                    DownloadOptions.FileCreationMode = FileCreationMode.CreateBackup;
+                }
+
+                FileInfo info = new FileInfo(DownloadOptions.FilePath);
+                Debug.Log("content lenght " + response.Content.Headers.ContentLength);
+                Debug.Log("file lenght " + info.Length);
+                state.TotalFileSize = response.Content.Headers.ContentLength + info.Length;
+                Debug.Log("total " + state.TotalFileSize);
+                state.DownloadedBytesCount = info.Length;
             }
         }
 
@@ -127,7 +134,7 @@ namespace Unido
         private async Task DownloadContentFromHttpResponseMessage(HttpResponseMessage response)
         {
             state.TotalFileSize = response.Content.Headers.ContentLength;
-            logger?.Log($"Downloading file size: {state.TotalFileSize}");
+            logger?.Log($"Downloading bytes count: {state.TotalFileSize}");
 
             Stream responseStream;
             try
@@ -170,6 +177,12 @@ namespace Unido
 
             do
             {
+                if (state.Paused)
+                {
+                    await UniTask.Yield();
+                    continue;
+                }
+
                 int bytesToRead;
                 try
                 {
@@ -227,7 +240,7 @@ namespace Unido
                     return FileMode.Create;
 
                 default:
-                case FileCreationMode.CreateBackupAndAppend:
+                case FileCreationMode.CreateBackupAndTryContinue:
                 case FileCreationMode.TryContinue:
                     return FileMode.Append;
             }
@@ -377,23 +390,9 @@ namespace Unido
             }
         }
 
-        //UNDONE
-        public void ResumeDownload()
-        {
-            if (!state.IsValid) return;
-        }
-
-        //UNDONE
-        public void PauseDownload()
-        {
-            if (!state.IsValid) return;
-        }
-
         public async void CancelDownload()
         {
-            if (state.Status != DownloadStatus.InProgress ||
-                state.Status != DownloadStatus.Started ||
-                state.Status != DownloadStatus.Paused)
+            if (state.Status != DownloadStatus.InProgress || state.Status != DownloadStatus.Started)
             {
                 return;
             }

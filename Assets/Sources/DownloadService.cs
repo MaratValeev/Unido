@@ -32,7 +32,7 @@ namespace Unido
 
             Logger = config.Logger;
             DefaultDownloadOptions = new DownloadOptions();
-            Logger?.Log($"Initialize {nameof(DownloadService)} completed");
+            Logger?.Log($"Initialize {nameof(DownloadService)} completed.");
         }
 
         private DownloadProcess RegisterDownloadProcess(DownloadOptions options)
@@ -44,6 +44,11 @@ namespace Unido
             }
 
             DownloadProcess process = new DownloadProcess(options, client, Logger);
+            if (!process.State.IsValid)
+            {
+                return process;
+            }
+
             currentDownloads.Add(process);
             process.DownloadEvent += HandleDownloadProcessEvent;
             return process;
@@ -69,14 +74,14 @@ namespace Unido
 
             bool createBackupOption =
                 options.FileCreationMode == FileCreationMode.CreateBackup ||
-                options.FileCreationMode == FileCreationMode.CreateBackupAndAppend;
+                options.FileCreationMode == FileCreationMode.CreateBackupAndTryContinue;
 
             if (!createBackupOption || string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 return;
             }
 
-            Logger?.Log($"Creating backup for {path}");
+            Logger?.Log($"Creating backup for {path}.");
             File.Copy(path, $"{path}.backup");
         }
 
@@ -92,16 +97,24 @@ namespace Unido
 
             string path = process.DownloadOptions.FilePath;
 
+            int loopBreaker = 0;
             while (File.Exists(path))
             {
+                if (loopBreaker > 200)
+                {
+                    Logger?.Log($"Failed try remove {path}.");
+                    break;
+                }
+
                 try
                 {
                     File.Delete(path);
-                    Logger?.Log($"File {path} removed");
+                    Logger?.Log($"File {path} removed.");
                     break;
                 }
                 catch
                 {
+                    loopBreaker++;
                     await UniTask.WaitForSeconds(0.1F);
                 }
             }
