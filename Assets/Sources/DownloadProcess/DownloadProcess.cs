@@ -23,7 +23,9 @@ namespace Unido
 
         private CancellationTokenSource cts;
 
+        //TODO: to state
         private DateTime startDownloadDateTime;
+
         private DateTime lastDonwloadEventInvokeDateTime;
         private int streamReadDownloadEventCounter;
         private float progressDownloadEventCounter;
@@ -42,7 +44,9 @@ namespace Unido
 
             if (!downloadOptions.CheckValidity(out string validateResultMessage))
             {
-                logger?.Log($"Validate options failed: {validateResultMessage}", LogType.Error);
+                string exceptionMessage = $"Invalid download options: {validateResultMessage}";
+                Exception argException = new ArgumentException(exceptionMessage);
+                logger?.Log(argException);
                 state.IsValid = false;
                 return;
             }
@@ -54,7 +58,10 @@ namespace Unido
 
         public async Task StartDownloadAsync()
         {
-            if (!state.IsValid) return;
+            if (!state.IsValid)
+            {
+                return;
+            }
 
             if (state.Status != DownloadStatus.NotStarted)
             {
@@ -62,65 +69,109 @@ namespace Unido
                 return;
             }
 
-            //Invoke event of start download 
+            startDownloadDateTime = DateTime.Now;
+
+            //Invoke event of start download
             InvokeDownloadEvent();
 
-            startDownloadDateTime = DateTime.Now;
             cts = new CancellationTokenSource();
 
-            var response = await TrySendRequestAsync();
-            if (response == null)
+            //Invoke event of start head request
+            InvokeDownloadEvent();
+
+            using var headResponse = await TrySendHeadRequestAsync();
+            if (headResponse == null)
             {
                 return;
             }
 
-            SetContinueDownloadIfNeeded(response);
+            HandleHeadResponse(headResponse, out bool downloadDontNeeded);
+            if (downloadDontNeeded)
+            {
+                return;
+            }
 
-            logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {response.StatusCode}");
-            await DownloadContentFromHttpResponseMessage(response);
+            SetupContinueModeIfNeeded(headResponse, out downloadDontNeeded);
+            if (downloadDontNeeded)
+            {
+                return;
+            }
+
+            using var getResponse = await TrySendGetRequestAsync();
+            if (getResponse == null)
+            {
+                return;
+            }
+
+            logger?.Log($"Successful start download {DownloadOptions.Url}. Status code: {getResponse.StatusCode}");
+            await DownloadContentFromHttpResponseMessage(getResponse);
         }
 
-        private void SetContinueDownloadIfNeeded(HttpResponseMessage response)
+        private void SetupContinueModeIfNeeded(HttpResponseMessage headResponse, out bool downloadDontNeeded)
         {
-            if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue)
-            {
-                if (!response.Headers.AcceptRanges.Contains("bytes"))
-                {
-                    logger?.Log("Server doesn't support download range content by bytes, " +
-                        $"download will continue in {nameof(FileCreationMode.CreateBackup)} mode.", type: LogType.Warning);
-                    DownloadOptions.FileCreationMode = FileCreationMode.CreateBackup;
-                }
+            downloadDontNeeded = false;
 
-                FileInfo info = new FileInfo(DownloadOptions.FilePath);
-                Debug.Log("content lenght " + response.Content.Headers.ContentLength);
-                Debug.Log("file lenght " + info.Length);
-                state.TotalFileSize = response.Content.Headers.ContentLength + info.Length;
-                Debug.Log("total " + state.TotalFileSize);
-                state.DownloadedBytesCount = info.Length;
+            if (DownloadOptions.FileCreationMode != FileCreationMode.TryContinue)
+            {
+                return;
+            }
+
+            FileInfo info = new FileInfo(DownloadOptions.FilePath);
+            state.DownloadedBytesCount = info.Length;
+
+            if (IsSameSize())
+            {
+                logger?.Log($"Continue download {DownloadOptions.Url} does not needed because " +
+                            $"target file size and local file size is identical");
+
+                downloadDontNeeded = true;
+                InvokeDownloadEvent();
             }
         }
 
-        private async Task<HttpResponseMessage> TrySendRequestAsync()
+        private async Task<HttpResponseMessage> TrySendHeadRequestAsync()
         {
-            HttpRequestMessage request = new HttpRequestMessage()
+            using HttpRequestMessage request = new HttpRequestMessage()
+            {
+                Method = HttpMethod.Head,
+                RequestUri = DownloadOptions.Url
+            };
+
+            request.Headers.CacheControl = new CacheControlHeaderValue() { NoCache = true };
+
+            if (!string.IsNullOrEmpty(DownloadOptions.ETag))
+            {
+                request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(DownloadOptions.ETag));
+            }
+
+            return await ExecuteRequest(request);
+        }
+
+        private async Task<HttpResponseMessage> TrySendGetRequestAsync()
+        {
+            using HttpRequestMessage request = new HttpRequestMessage()
             {
                 Method = HttpMethod.Get,
                 RequestUri = DownloadOptions.Url
             };
 
+            request.Headers.CacheControl = new CacheControlHeaderValue() { NoCache = true };
             if (DownloadOptions.FileCreationMode == FileCreationMode.TryContinue)
             {
                 FileInfo info = new FileInfo(DownloadOptions.FilePath);
-
-                request.Headers.CacheControl = new CacheControlHeaderValue() { NoCache = true };
                 request.Headers.Range = new RangeHeaderValue(info.Length, null);
             }
 
+            return await ExecuteRequest(request);
+        }
+
+        private async Task<HttpResponseMessage> ExecuteRequest(HttpRequestMessage request)
+        {
             HttpResponseMessage response;
             try
             {
                 response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-                state.StatusCode = (int)response.StatusCode;
+                state.ResponseStatusCode = (int)response.StatusCode;
                 response.EnsureSuccessStatusCode();
                 return response;
             }
@@ -129,6 +180,36 @@ namespace Unido
                 InvokeDownloadEvent(ex);
                 return null;
             }
+        }
+
+        private void HandleHeadResponse(HttpResponseMessage response, out bool downloadDontNeeded)
+        {
+            downloadDontNeeded = false;
+
+            state.TotalFileSize = response.Content.Headers.ContentLength;
+
+            if (!response.Headers.AcceptRanges.Contains("bytes"))
+            {
+                logger?.Log("Server doesn't support download range content by bytes, " +
+                           $"download will continue in '{FileCreationMode.Replace}' mode.", type: LogType.Warning);
+                DownloadOptions.FileCreationMode = FileCreationMode.Replace;
+            }
+
+            state.ETag = response.Headers.ETag.Tag;
+
+            if (!string.IsNullOrEmpty(DownloadOptions.ETag) && response.StatusCode == HttpStatusCode.NotModified)
+            {
+                logger?.Log($"Download {DownloadOptions.Url} does not needed because " +
+                            $"remote file is not modified");
+
+                downloadDontNeeded = true;
+                InvokeDownloadEvent();
+            }
+        }
+
+        private bool IsSameSize()
+        {
+            return state.TotalFileSize == state.DownloadedBytesCount;
         }
 
         private async Task DownloadContentFromHttpResponseMessage(HttpResponseMessage response)
@@ -173,7 +254,7 @@ namespace Unido
                 return;
             }
 
-            state.Status = DownloadStatus.InProgress;
+            state.Status = DownloadStatus.DownloadingContent;
 
             do
             {
@@ -229,7 +310,7 @@ namespace Unido
                     InvokeDownloadEvent();
                 }
             }
-            while (state.Status == DownloadStatus.InProgress);
+            while (state.Status == DownloadStatus.DownloadingContent);
         }
 
         private FileMode SelectFileMode(FileCreationMode mode)
@@ -305,18 +386,30 @@ namespace Unido
             {
                 status = HandleException(exception);
             }
-            else if (state.TotalFileSize.HasValue)
+            else if (State.Status == DownloadStatus.NotStarted)
+            {
+                status = DownloadStatus.Started;
+            }
+            else if (State.Status == DownloadStatus.Started)
+            {
+                status = DownloadStatus.SendingHeadRequest;
+            }
+            else if (State.Status == DownloadStatus.SendingHeadRequest)
+            {
+                status = DownloadStatus.SendingGetRequest;
+            }
+            else
             {
                 if (state.DownloadedBytesCount < state.TotalFileSize.Value)
                 {
                     if (state.DownloadedBytesCount > 0)
                     {
-                        status = DownloadStatus.InProgress;
+                        status = DownloadStatus.DownloadingContent;
                     }
                 }
-                else if (state.DownloadedBytesCount == state.TotalFileSize.Value)
+                else if (IsSameSize())
                 {
-                    logger?.Log($"Downloading file completed.\n" +
+                    logger?.Log($"File download process completed.\n" +
                         $"Url: {DownloadOptions.Url}");
 
                     DisposeStreams();
@@ -328,10 +421,6 @@ namespace Unido
                 {
                     throw new InvalidOperationException("Downloaded bytes is more than total!");
                 }
-            }
-            else if (status == DownloadStatus.NotStarted)
-            {
-                status = DownloadStatus.Started;
             }
 
             state.Status = status;
@@ -352,14 +441,14 @@ namespace Unido
 
             if (canceled)
             {
-                logger?.Log($"Download file canceled.\n" +
+                logger?.Log($"File download process canceled.\n" +
                     $"Url: {DownloadOptions.Url}");
 
                 return DownloadStatus.Cancelled;
             }
             else
             {
-                logger?.Log($"Downloading file failed.\n" +
+                logger?.Log($"File download process failed.\n" +
                     $"Url:{DownloadOptions.Url}\n" +
                     $"Exception: {exception}",
                     type: LogType.Exception);
@@ -392,7 +481,7 @@ namespace Unido
 
         public async void CancelDownload()
         {
-            if (state.Status != DownloadStatus.InProgress || state.Status != DownloadStatus.Started)
+            if (state.Status != DownloadStatus.DownloadingContent || state.Status != DownloadStatus.Started)
             {
                 return;
             }

@@ -36,14 +36,14 @@ namespace Unido
             options.ProgressTriggerType = DownloadProgressChangeTrigger.ByPrecentage;
             options.DeleteOnCancelOrOnFail = false;
 
-            if (File.Exists(path))
-            {
-                options.FileCreationMode = FileCreationMode.TryContinue;
-            }
-            else
-            {
-                options.FileCreationMode = FileCreationMode.Replace;
-            }
+            //if (File.Exists(path))
+            //{
+            //    options.FileCreationMode = FileCreationMode.TryContinue;
+            //}
+            //else
+            //{
+            options.FileCreationMode = FileCreationMode.CreateBackup;
+            //}
 
             process = downloader.Download(options);
             if (process == null)
@@ -54,6 +54,7 @@ namespace Unido
             process.DownloadEvent += (a) =>
             {
                 info.text = a.ToString();
+                Debug.Log(a.State.Status);
             };
         }
 

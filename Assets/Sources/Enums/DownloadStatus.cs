@@ -5,9 +5,10 @@ namespace Unido
         Undefined,
         NotStarted,
         Started,
-        InProgress,
+        SendingHeadRequest,
+        SendingGetRequest,
+        DownloadingContent,
         Completed,
-
         Cancelled,
         Failed,
     }

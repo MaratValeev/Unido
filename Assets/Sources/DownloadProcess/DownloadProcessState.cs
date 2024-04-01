@@ -20,7 +20,7 @@ namespace Unido
                     Status == DownloadStatus.Failed;
             }
         }
-        public int StatusCode { get; set; }
+        public int ResponseStatusCode { get; set; }
         public bool Paused { get; set; }
         public long BytesToDownloadLeft
         {
@@ -33,6 +33,7 @@ namespace Unido
                 return 0;
             }
         }
+        public string ETag { get; set; }
 
         public override string ToString()
         {
@@ -45,8 +46,9 @@ namespace Unido
             builder.AppendLine($"{nameof(Progress)}: {Progress}");
             builder.AppendLine($"{nameof(DownloadSpeedAverage)}: {DownloadSpeedAverage}");
             builder.AppendLine($"{nameof(DownloadedBytesForLastSecond)}: {DownloadedBytesForLastSecond}");
-            builder.AppendLine($"{nameof(StatusCode)}: {StatusCode}");
+            builder.AppendLine($"{nameof(ResponseStatusCode)}: {ResponseStatusCode}");
             builder.AppendLine($"{nameof(BytesToDownloadLeft)}: {BytesToDownloadLeft}");
+            builder.AppendLine($"{nameof(ETag)}: {ETag}");
 
             return builder.ToString();
         }
@@ -62,8 +64,9 @@ namespace Unido
         public float DownloadSpeedAverage { get; }
         public float DownloadedBytesForLastSecond { get; }
         public bool IsDone { get; }
-        public int StatusCode { get; }
-        public long BytesToDownloadLeft { get; }
+        public int ResponseStatusCode { get; }
         public bool Paused { get; set; }
+        public long BytesToDownloadLeft { get; }
+        public string ETag { get; }
     }
 }

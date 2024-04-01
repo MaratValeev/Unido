@@ -4,13 +4,6 @@ using UnityEngine;
 
 namespace Unido
 {
-    public enum FileCreationMode
-    {
-        CreateBackup,
-        Replace,
-        TryContinue,
-        CreateBackupAndTryContinue
-    }
 
     /// <include file='Documentation.xml' path='docs/members[@name="DownloadOptions"]/*' />
     public class DownloadOptions : ICloneable
@@ -19,7 +12,7 @@ namespace Unido
         private int bufferSize = 4096;
         private float progressTriggerValue = 250;
 
-        public FileCreationMode FileCreationMode { get; set; } = FileCreationMode.TryContinue;
+        public FileCreationMode FileCreationMode { get; set; } = FileCreationMode.Replace;
         public bool DeleteOnCancelOrOnFail { get; set; } = true;
         public Uri Url { get; set; }
         public string FilePath { get; set; }
@@ -51,6 +44,8 @@ namespace Unido
             }
         }
         public GameObject Context { get; set; }
+        //TODO: not implemented
+        public bool ReserveDriveSpace { get; set; }
         public DownloadProgressChangeTrigger ProgressTriggerType { get; set; } = DownloadProgressChangeTrigger.ByMilliseconds;
         public float ProgressTriggerValue
         {
@@ -60,6 +55,7 @@ namespace Unido
                 progressTriggerValue = Mathf.Clamp(value, 0, float.MaxValue);
             }
         }
+        public string ETag { get; set; }
 
         public object Clone()
         {
@@ -86,10 +82,13 @@ namespace Unido
                 return false;
             }
 
-            if (FileCreationMode == FileCreationMode.TryContinue && string.IsNullOrEmpty(FilePath))
+            if (FileCreationMode == FileCreationMode.TryContinue)
             {
-                message = "Need set file path for try continue download!";
-                return false;
+                if (string.IsNullOrEmpty(FilePath))
+                {
+                    message = "Need set file path for try continue download!";
+                    return false;
+                }
             }
 
             message = "Ok";
@@ -108,6 +107,7 @@ namespace Unido
             builder.AppendLine($"{nameof(SpeedLimit)}: {SpeedLimit}");
             builder.AppendLine($"{nameof(BufferSize)}: {BufferSize}");
             builder.AppendLine($"{nameof(Context)}: {Context}");
+            builder.AppendLine($"{nameof(ETag)}: {ETag}");
 
             return builder.ToString();
         }

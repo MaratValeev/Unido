@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading;
+using Unity.VisualScripting.YamlDotNet.Core.Tokens;
 using UnityEngine;
 
 namespace Unido
@@ -13,9 +15,28 @@ namespace Unido
         private List<DownloadProcess> currentDownloads;
         private HttpClient client;
 
+        public const float MAX_TIMEOUT = 600;
+
         public ILogger Logger { get; set; }
         public DownloadOptions DefaultDownloadOptions { get; private set; }
         public IReadOnlyCollection<DownloadProcess> CurrentDownloadProcesses => currentDownloads.AsReadOnly();
+        public float Timeout
+        {
+            get => client == null ? 0 : (float)client.Timeout.TotalSeconds;
+            set
+            {
+                if (client == null)
+                {
+                    return;
+                }
+
+                client.Timeout = TimeSpan.FromSeconds(ValidateTimeout(Timeout));
+            }
+        }
+
+        public DownloadService() : this(new DownloadServiceConfig())
+        {
+        }
 
         public DownloadService(DownloadServiceConfig config)
         {
@@ -27,7 +48,7 @@ namespace Unido
             currentDownloads = new List<DownloadProcess>();
             client = new HttpClient()
             {
-                Timeout = TimeSpan.FromSeconds(config.Timeout)
+                Timeout = TimeSpan.FromSeconds(ValidateTimeout(Timeout))
             };
 
             Logger = config.Logger;
@@ -100,7 +121,7 @@ namespace Unido
             int loopBreaker = 0;
             while (File.Exists(path))
             {
-                if (loopBreaker > 200)
+                if (loopBreaker > 50)
                 {
                     Logger?.Log($"Failed try remove {path}.");
                     break;
@@ -118,6 +139,11 @@ namespace Unido
                     await UniTask.WaitForSeconds(0.1F);
                 }
             }
+        }
+
+        private float ValidateTimeout(float value)
+        {
+            return Math.Clamp(value, 0.01F, MAX_TIMEOUT);
         }
 
         public void Dispose()
